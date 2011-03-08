@@ -28,13 +28,13 @@ RENAME = {
     '^waflib': r'pjswaflib',
     'wscript$': r'pjscript',
 }
-#FIXME PRELUDE must exist
+
 TRANSFORM = {
     'waf': r'pjswaf',
     'Waf': r'Pjswaf',
     'WAF': r'PJSWAF',
     'wscript': r'pjscript',
-    '^.*compat15#PRELUDE.*$': r'',
+    '\.compat15': '',
 }
 
 
