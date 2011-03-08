@@ -34,6 +34,7 @@ TRANSFORM = {
     'Waf': r'Pjswaf',
     'WAF': r'PJSWAF',
     'wscript': r'pjscript',
+    'WSCRIPT': r'PJSCRIPT',
     '\.compat15': '',
 }
 
