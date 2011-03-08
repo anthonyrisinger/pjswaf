@@ -101,22 +101,22 @@ if __name__ == '__main__':
             wafz = opts.waf
     except IOError:
         wafz = urllib.urlretrieve(REMOTE + '/' + ARCHIVE, ARCHIVE)[0]
-    pj = StringIO.StringIO()
+    pjs = StringIO.StringIO()
     with open(wafz, 'rb') as w:
         waf = StringIO.StringIO(w.read())
         if sha1(waf.read()).hexdigest() != opts.sha1:
             raise ValueError('Waf archive is corrupted.')
         waf.seek(0)
-    pjball = tarfile.open(mode='w:gz', fileobj=pj)
+    pjsball = tarfile.open(mode='w:gz', fileobj=pjs)
     wafball = tarfile.open(fileobj=waf)
     for m in wafball.getmembers():
         if include(m):
             rename(m)
-            pjball.addfile(*transform(m, wafball.extractfile(m)))
-    pjball.list()
-    pjball.close()
-    pj.seek(0)
-    pjball = tarfile.open(fileobj=pj)
-    pjball.extractall(buildlib)
-    for fd in pjball, wafball, pj, waf:
+            pjsball.addfile(*transform(m, wafball.extractfile(m)))
+    pjsball.list()
+    pjsball.close()
+    pjs.seek(0)
+    pjsball = tarfile.open(fileobj=pjs)
+    pjsball.extractall(buildlib)
+    for fd in pjsball, wafball, pjs, waf:
         fd.close()
