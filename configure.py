@@ -1,7 +1,54 @@
 #!/usr/bin/python2
+#FIXME allow running by py3k
+
+py_version_range = (0x20600ef, 0x30000f0)
+py_version_scan = ('python2', 'python2.6', 'python2.7', 'python')
+
 
 import sys
 import os
+import subprocess
+
+
+def _py_find(python):
+
+    class PyFound(Exception):
+        pass
+
+    def test(py):
+        if py is None:
+            return
+        try:
+            #py = os.path.abspath(py)
+            #os.path.isfile(py)
+            #FIXME clear ENV and have script output the abspath itself
+            if subprocess.call([py, '-c', script]) == 0:
+                raise PyFound(py)
+        except OSError:
+            pass
+
+    script = 'import sys; {0}<sys.hexversion<{1} or sys.exit(1)'.format(*py_version_range)
+
+    try:
+        test(python)
+        test(sys.executable)
+        #test(sys.argv[0])
+        for py in py_version_scan:
+            test(py)
+    except PyFound as pf:
+        return pf.args[0]
+    else:
+        return None
+
+#FIXME we probably shouldnt even test if PYTHON is set by user, only warn?
+PYTHON = _py_find(os.environ.get('PYTHON'))
+
+if PYTHON is None:
+    sys.stderr.write('WARNING: Unable to verify Python executable, ignoring ...')
+sys.stderr.write(PYTHON + '\n')
+sys.exit()
+
+
 import re
 import urllib
 import tarfile
