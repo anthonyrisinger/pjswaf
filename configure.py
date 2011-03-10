@@ -155,7 +155,7 @@ if __name__ == '__main__':
         with open(opts.uri, 'rb'):
             wafz = opts.uri
     except IOError:
-        wafz = urllib.urlretrieve(waf_url + '/' + waf_archive, waf_archive)[0]
+        wafz = urllib.urlretrieve(waf_url, waf_archive)[0]
     pjs = StringIO.StringIO()
     with open(wafz, 'rb') as w:
         waf = StringIO.StringIO(w.read())
