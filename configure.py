@@ -2,7 +2,7 @@
 #FIXME allow running by py3k
 
 py_version_range = (0x20600ef, 0x30000f0)
-py_version_scan = ('python2', 'python2.6', 'python2.7', 'python')
+py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
 
 import sys
@@ -10,43 +10,49 @@ import os
 import subprocess
 
 
-def _py_find(python):
+def _py_find():
 
-    class PyFound(Exception):
+    class PyFound2x(Exception):
         pass
 
     def test(py):
-        if py is None:
-            return
         try:
-            #py = os.path.abspath(py)
-            #os.path.isfile(py)
-            #FIXME clear ENV and have script output the abspath itself
-            if subprocess.call([py, '-c', script]) == 0:
-                raise PyFound(py)
+            stdout = subprocess.Popen([py, '-c', _py_version_test], stdout=subprocess.PIPE).communicate()[0]
+            if len(stdout) > 0:
+                hexversion, executable = [str(x.decode('utf8')) for x in stdout.split(b'\0')]
+                if py_version_range[0] < int(hexversion) < py_version_range[1] and os.path.isfile(executable):
+                    raise PyFound2x(executable)
         except OSError:
             pass
 
-    script = 'import sys; {0}<sys.hexversion<{1} or sys.exit(1)'.format(*py_version_range)
-
     try:
-        test(python)
         test(sys.executable)
-        #test(sys.argv[0])
         for py in py_version_scan:
             test(py)
-    except PyFound as pf:
+    except PyFound2x as pf:
         return pf.args[0]
     else:
         return None
 
-#FIXME we probably shouldnt even test if PYTHON is set by user, only warn?
-PYTHON = _py_find(os.environ.get('PYTHON'))
+
+_py_version_test = r"""
+
+import sys
+import os
+
+info = [
+    sys.hexversion,
+    os.path.abspath(sys.executable),
+]
+
+sys.stdout.write('\0'.join(map(str, info)))
+
+"""
+
+PYTHON = os.environ.get('PYTHON') or _py_find()
 
 if PYTHON is None:
     sys.stderr.write('WARNING: Unable to verify Python executable, ignoring ...')
-sys.stderr.write(PYTHON + '\n')
-sys.exit()
 
 
 import re
