@@ -11,6 +11,27 @@ waf_url = 'http://waf.googlecode.com/files/{0}'.format(waf_archive)
 py_version_range = (0x20600ef, 0x30000f0)
 py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
+pjswaf_cp = {
+    '/': r'(waf-light|wscript)',
+    '/waflib/': r'[^/]*\.py',
+    '/waflib/Tools/': r'(__init__|python|errcheck|gnu_dirs)\.py',
+    '/waflib/extras/': r'(__init__|parallel_debug|why)\.py',
+}
+
+pjswaf_mv = {
+    '^waf-light$': r'pjswaf-light',
+    '^waflib': r'pjswaflib',
+    'wscript$': r'pjscript',
+}
+
+pjswaf_xform = {
+    'waf': r'pjswaf',
+    'Waf': r'Pjswaf',
+    'WAF': r'PJSWAF',
+    'wscript': r'pjscript',
+    'WSCRIPT': r'PJSCRIPT',
+    '\.compat15': '',
+}
 
 import sys
 import os
@@ -47,12 +68,12 @@ _py_version_test = r"""
 import sys
 import os
 
-info = [
+pkg = [
     sys.hexversion,
     os.path.abspath(sys.executable),
 ]
 
-sys.stdout.write('\0'.join(map(str, info)))
+sys.stdout.write('\0'.join(map(str, pkg)))
 
 """
 
@@ -69,47 +90,23 @@ import StringIO
 from hashlib import sha1
 from optparse import OptionParser
 
-
-INCLUDE = {
-    '/': r'(waf-light|wscript)',
-    '/waflib/': r'[^/]*\.py',
-    '/waflib/Tools/': r'(__init__|python|errcheck|gnu_dirs)\.py',
-    '/waflib/extras/': r'(__init__|parallel_debug|why)\.py',
-}
-
-RENAME = {
-    '^waf-light$': r'pjswaf-light',
-    '^waflib': r'pjswaflib',
-    'wscript$': r'pjscript',
-}
-
-TRANSFORM = {
-    'waf': r'pjswaf',
-    'Waf': r'Pjswaf',
-    'WAF': r'PJSWAF',
-    'wscript': r'pjscript',
-    'WSCRIPT': r'PJSCRIPT',
-    '\.compat15': '',
-}
-
-
 _re_include = [
     re.compile('^{ident}{prefix}{pattern}$'.format(
         ident=re.escape(waf_ident),
         prefix=re.escape(k),
         pattern=v
     ))
-    for k, v in INCLUDE.iteritems()
+    for k, v in pjswaf_cp.iteritems()
 ]
 
 _re_rename = [
     (re.compile(k), v)
-    for k, v in RENAME.iteritems()
+    for k, v in pjswaf_mv.iteritems()
 ]
 
 _re_transform = [ 
     (re.compile(k), v)
-    for k, v in TRANSFORM.iteritems()
+    for k, v in pjswaf_xform.iteritems()
 ]
 
 
