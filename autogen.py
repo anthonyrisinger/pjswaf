@@ -33,6 +33,7 @@ pjswaf_xform = {
     '\.compat15': '',
 }
 
+
 import sys
 import os
 import subprocess
@@ -43,24 +44,24 @@ def _py_find():
     class PyFound2x(Exception):
         pass
 
-    def test(py):
+    def test(py, reexec=True):
         try:
             stdout = subprocess.Popen([py, '-c', _py_version_test], stdout=subprocess.PIPE).communicate()[0]
             if len(stdout) > 0:
                 hexversion, executable = [str(x.decode('utf8')) for x in stdout.split(b'\0')]
                 if py_version_range[0] < int(hexversion) < py_version_range[1] and os.path.isfile(executable):
-                    raise PyFound2x(executable)
+                    raise PyFound2x(executable, reexec)
         except OSError:
             pass
 
     try:
-        test(sys.executable)
+        test(sys.executable, False)
         for py in py_version_scan:
             test(py)
     except PyFound2x as pf:
-        return pf.args[0]
+        return pf.args
     else:
-        return None
+        return None, False
 
 
 _py_version_test = r"""
@@ -77,10 +78,22 @@ sys.stdout.write('\0'.join(map(str, pkg)))
 
 """
 
-PYTHON = os.environ.get('PYTHON') or _py_find()
-
-if PYTHON is None:
-    sys.stderr.write('WARNING: Unable to verify Python executable, ignoring ...\n')
+if 'PYTHON' in os.environ:
+    PYTHON = os.environ['PYTHON']
+else:
+    PYTHON, reexec = _py_find()
+    if PYTHON is not None and reexec is False:
+        sys.stderr.write('Continuing with current Python executable ...\n')
+    elif PYTHON is not None and reexec is True:
+        sys.stderr.write('Re-executing under new Python executable ({0}) ...\n'.format(PYTHON))
+        os.environ['PYTHON'] = PYTHON
+        sys.argv[0:0] = [PYTHON]
+        os.execv(PYTHON, sys.argv)
+        # possibly needed for windows (no support for process replacement?)
+        sys.exit()
+    else:
+        sys.stderr.write('WARNING: Unable to verify Python executable, ignoring ...\n')
+    os.environ['PYTHON'] = PYTHON or sys.executable
 
 
 import re
@@ -89,6 +102,7 @@ import tarfile
 import StringIO
 from hashlib import sha1
 from optparse import OptionParser
+
 
 _re_include = [
     re.compile('^{ident}{prefix}{pattern}$'.format(
