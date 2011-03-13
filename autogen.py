@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 
 waf_ident = 'waf-1.6.3'
@@ -10,27 +10,51 @@ waf_url = 'http://waf.googlecode.com/files/{0}'.format(waf_archive)
 py_version_range = (0x20600ef, 0x30000f0)
 py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
-pjswaf_cp = {
-    '/': r'(waf-light|wscript)',
-    '/waflib/': r'[^/]*\.py',
-    '/waflib/Tools/': r'(__init__|python|errcheck|gnu_dirs)\.py',
-    '/waflib/extras/': r'(__init__|parallel_debug|why)\.py',
-}
+# (r'match', r'sub')
+# The first matching expression will be used; others will not be tried
+# NB: \0 backref fails for unknown reason, using \g<0> seems to work
+pjswaf_path_xform = [
 
-pjswaf_mv = {
-    '^waf-light$': r'pjswaf-light',
-    '^waflib': r'pjswaflib',
-    'wscript$': r'pjscript',
-}
+    (r'^waf-light$',
+        r'pjswaf-light'),
 
-pjswaf_xform = {
-    'waf': r'pjswaf',
-    'Waf': r'Pjswaf',
-    'WAF': r'PJSWAF',
-    'wscript': r'pjscript',
-    'WSCRIPT': r'PJSCRIPT',
-    '\.compat15': '',
-}
+    (r'^wscript$',
+        r'jamfile'),
+
+    (r'^waflib/[^/]*\.py$',
+        r'pjs\g<0>'),
+
+    (r'^waflib/Tools/(__init__|python|errcheck|gnu_dirs)\.py$',
+        r'pjs\g<0>'),
+
+    (r'^waflib/extras/(__init__|parallel_debug|why)\.py$',
+        r'pjs\g<0>'),
+
+]
+
+# (r'match', r'sub')
+# These will be OR'ed together and ran on the entire body of code; 1 pass
+pjswaf_code_xform = [
+
+    (r'waf',
+        r'pjswaf'),
+
+    (r'Waf',
+        r'Pjswaf'),
+
+    (r'WAF',
+        r'PJSWAF'),
+
+    (r'wscript',
+        r'jamfile'),
+
+    (r'WSCRIPT',
+        r'JAMFILE'),
+
+    (r'\.compat15',
+        r''),
+
+]
 
 
 import sys
@@ -103,49 +127,48 @@ from hashlib import sha1
 from optparse import OptionParser
 
 
-_re_include = [
-    re.compile('^{ident}{prefix}{pattern}$'.format(
-        ident=re.escape(waf_ident),
-        prefix=re.escape(k),
-        pattern=v
-    ))
-    for k, v in pjswaf_cp.iteritems()
-]
+def _waf_to_pjs(waf, pjs):
 
-_re_rename = [
-    (re.compile(k), v)
-    for k, v in pjswaf_mv.iteritems()
-]
+    class PathMatch(Exception):
+        pass
 
-_re_transform = [ 
-    (re.compile(k), v)
-    for k, v in pjswaf_xform.iteritems()
-]
+    wafball = tarfile.open(fileobj=waf)
+    pjsball = tarfile.open(fileobj=pjs, mode='w')
 
+    re_path_all = [
+        (re.compile(pat), sub)
+        for pat, sub in pjswaf_path_xform
+    ]
+    re_code_all = [
+        (re.compile(pat), sub)
+        for pat, sub in pjswaf_code_xform
+    ]
 
-def include(m):
-    for r in _re_include:
-        if r.match(m.path):
-            m.path = m.path.replace(waf_ident,'').lstrip('./')
-            return True
-    return False
+    for member in wafball.getmembers():
+        member.path = member.path.replace(waf_ident,'').lstrip('./')
+        try:
+            for re_path, re_path_sub in re_path_all:
+                new_path, n = re_path.subn(re_path_sub, member.path)
+                if n == 1:
+                    member.path = new_path
+                    raise PathMatch
+        except PathMatch:
+            fd_waf = wafball.extractfile(member)
+            fd_pjs = StringIO.StringIO()
+            for line in fd_waf:
+                for re_code, re_code_sub in re_code_all:
+                    line = re_code.sub(re_code_sub, line)
+                fd_pjs.write(line)
+            member.size = fd_pjs.tell()
+            fd_pjs.seek(0)
+            pjsball.addfile(member, fd_pjs)
 
+    for fd in wafball, pjsball:
+        fd.close()
+    waf.seek(0)
+    pjs.seek(0)
 
-def rename(m):
-    for r in _re_rename:
-        m.path = r[0].sub(r[1], m.path)
-    return m
-
-
-def transform(m, fd):
-    new = StringIO.StringIO()
-    for l in fd:
-        for t in _re_transform:
-            l = t[0].sub(t[1], l)
-        new.write(l)
-    m.size = new.tell()
-    new.seek(0)
-    return m, new
+    return pjs
 
 
 if __name__ == '__main__':
@@ -172,16 +195,8 @@ if __name__ == '__main__':
         if sha1(waf.read()).hexdigest() != opts.hash:
             raise ValueError('Waf archive is corrupted.')
         waf.seek(0)
-    pjsball = tarfile.open(mode='w:gz', fileobj=pjs)
-    wafball = tarfile.open(fileobj=waf)
-    for m in wafball.getmembers():
-        if include(m):
-            rename(m)
-            pjsball.addfile(*transform(m, wafball.extractfile(m)))
+    pjsball = tarfile.open(fileobj=_waf_to_pjs(waf, pjs))
     pjsball.list()
-    pjsball.close()
-    pjs.seek(0)
-    pjsball = tarfile.open(fileobj=pjs)
     pjsball.extractall(buildlib)
-    for fd in pjsball, wafball, pjs, waf:
+    for fd in pjsball, pjs, waf:
         fd.close()
