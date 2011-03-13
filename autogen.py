@@ -1,5 +1,4 @@
-#!/usr/bin/python2
-#FIXME allow running by py3k
+#!/usr/bin/python
 
 
 waf_ident = 'waf-1.6.3'
