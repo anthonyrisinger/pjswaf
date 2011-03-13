@@ -10,48 +10,60 @@ waf_url = 'http://waf.googlecode.com/files/{0}'.format(waf_archive)
 py_version_range = (0x20600ef, 0x30000f0)
 py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
-# (r'match', r'sub')
-# The first matching expression will be used; others will not be tried
-# NB: \0 backref fails for unknown reason, using \g<0> seems to work
+# (ident, match, sub)
+# The first matching expression will be used; others are not tried. `ident` must
+# be both unique AND valid identifier! Only named groups are supported; numbered
+# groups will produce unexpected results (final regex is combined, single-pass).
 pjswaf_path_xform = [
 
-    (r'^waf-light$',
+    ('light',
+    r'^waf-light$',
         r'pjswaf-light'),
 
-    (r'^wscript$',
+    ('jam',
+    r'^wscript$',
         r'jamfile'),
 
-    (r'^waflib/[^/]*\.py$',
-        r'pjs\g<0>'),
+    ('lib',
+    r'^waflib/[^/]*\.py$',
+        r'pjs\g<lib>'),
 
-    (r'^waflib/Tools/(__init__|python|errcheck|gnu_dirs)\.py$',
-        r'pjs\g<0>'),
+    ('tools',
+    r'^waflib/Tools/(__init__|python|errcheck|gnu_dirs)\.py$',
+        r'pjs\g<tools>'),
 
-    (r'^waflib/extras/(__init__|parallel_debug|why)\.py$',
-        r'pjs\g<0>'),
+    ('extras',
+    r'^waflib/extras/(__init__|parallel_debug|why)\.py$',
+        r'pjs\g<extras>'),
 
 ]
 
-# (r'match', r'sub')
-# These will be OR'ed together and ran on the entire body of code; 1 pass
+# (ident, match, sub)
+# Same as above.
 pjswaf_code_xform = [
 
-    (r'waf',
+    ('waf0',
+    r'waf',
         r'pjswaf'),
 
-    (r'Waf',
+    ('waf1',
+    r'Waf',
         r'Pjswaf'),
 
-    (r'WAF',
+    ('waf2',
+    r'WAF',
         r'PJSWAF'),
 
-    (r'wscript',
+    ('jam0',
+    r'wscript',
         r'jamfile'),
 
-    (r'WSCRIPT',
+    ('jam1',
+    r'WSCRIPT',
         r'JAMFILE'),
 
-    (r'\.compat15',
+    ('compat',
+    r'\.compat15',
         r''),
 
 ]
@@ -127,44 +139,47 @@ from hashlib import sha1
 from optparse import OptionParser
 
 
+def _gen_xform(re_list):
+    re_all = []
+    map_sub = {}
+    for ident, pattern, sub in re_list:
+        re_all.append('(?P<{0}>{1})'.format(ident, pattern))
+        map_sub[ident] = sub
+    re_all = re.compile('|'.join(re_all))
+    def xone(match):
+        # This little trick works because the `ident` group always matches
+        # last; it represents the entire match, encompasses all sub-matches if
+        # any, and is OR'ed at the top level). The engine is unable to complete
+        # the group until it reaches the end of the match.
+        return match.expand(map_sub[match.lastgroup])
+    def xall(text):
+        return re_all.sub(xone, text)
+    return xall
+
+
 def _waf_to_pjs(waf, pjs):
 
-    class PathMatch(Exception):
-        pass
-
-    wafball = tarfile.open(fileobj=waf)
     pjsball = tarfile.open(fileobj=pjs, mode='w')
 
-    re_path_all = [
-        (re.compile(pat), sub)
-        for pat, sub in pjswaf_path_xform
-    ]
-    re_code_all = [
-        (re.compile(pat), sub)
-        for pat, sub in pjswaf_code_xform
-    ]
+    re_path = _gen_xform(pjswaf_path_xform)
+    re_code = _gen_xform(pjswaf_code_xform)
 
-    for member in wafball.getmembers():
-        member.path = member.path.replace(waf_ident,'').lstrip('./')
-        try:
-            for re_path, re_path_sub in re_path_all:
-                new_path, n = re_path.subn(re_path_sub, member.path)
-                if n == 1:
+    # Compound `with` statements are not supported until 2.7 and methinks at
+    # least one or two people would throw a fit about this ;-) ... *trying*
+    # to keep everything compatible to 2.6 ...
+    with tarfile.open(fileobj=waf) as wafball:
+        with tarfile.open(fileobj=pjs, mode='w') as pjsball:
+            for member in wafball.getmembers():
+                member.path = member.path.replace(waf_ident,'').lstrip('./')
+                new_path = re_path(member.path)
+                if new_path != member.path:
                     member.path = new_path
-                    raise PathMatch
-        except PathMatch:
-            fd_waf = wafball.extractfile(member)
-            fd_pjs = StringIO.StringIO()
-            for line in fd_waf:
-                for re_code, re_code_sub in re_code_all:
-                    line = re_code.sub(re_code_sub, line)
-                fd_pjs.write(line)
-            member.size = fd_pjs.tell()
-            fd_pjs.seek(0)
-            pjsball.addfile(member, fd_pjs)
+                    fd_pjs = StringIO.StringIO()
+                    fd_pjs.write(re_code(wafball.extractfile(member).read()))
+                    member.size = fd_pjs.tell()
+                    fd_pjs.seek(0)
+                    pjsball.addfile(member, fd_pjs)
 
-    for fd in wafball, pjsball:
-        fd.close()
     waf.seek(0)
     pjs.seek(0)
 
