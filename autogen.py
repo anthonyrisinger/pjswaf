@@ -118,14 +118,14 @@ if 'PYTHON' in os.environ:
 else:
     PYTHON, reexec = _py_find()
     if PYTHON is not None and reexec is True:
-        sys.stderr.write('WARNING: Re-executing under new Python executable ({0}) ...\n'.format(PYTHON))
+        sys.stderr.write('WARN: Re-executing under python2.x executable [{0}] ...\n'.format(PYTHON))
         os.environ['PYTHON'] = PYTHON
         sys.argv[0:0] = [PYTHON]
         os.execv(PYTHON, sys.argv)
         # possibly needed for windows (no support for process replacement?)
         sys.exit()
     else:
-        sys.stderr.write('WARNING: Unable to verify Python executable, ignoring ...\n')
+        sys.stderr.write('INFO: Unable to verify Python executable, ignoring ...\n')
     os.environ['PYTHON'] = PYTHON or sys.executable
 
 
@@ -152,12 +152,13 @@ def _gen_xform(re_list):
         # the group until it reaches the end of the match.
         return match.expand(map_sub[match.lastgroup])
     def xall(text):
-        return re_all.sub(xone, text)
+        return re_all.subn(xone, text)
     return xall
 
 
 def _waf_to_pjs(waf, pjs=None):
 
+    sys.stderr.write('INFO: Generating pjswaf from waf ...\n')
     if pjs is None:
         pjs = StringIO.StringIO()
     pjsball = tarfile.open(fileobj=pjs, mode='w')
@@ -171,11 +172,14 @@ def _waf_to_pjs(waf, pjs=None):
         with tarfile.open(fileobj=pjs, mode='w') as pjsball:
             for member in wafball.getmembers():
                 member.path = member.path.replace(waf_ident,'').lstrip('./')
-                new_path = re_path(member.path)
-                if new_path != member.path:
-                    member.path = new_path
+                path_orig = member.path
+                member.path, n = re_path(member.path)
+                if n > 0:
+                    sys.stderr.write('    + ')
                     fd_pjs = StringIO.StringIO()
-                    fd_pjs.write(re_code(wafball.extractfile(member).read()))
+                    code_pjs, n = re_code(wafball.extractfile(member).read())
+                    sys.stderr.write('{0: <3} {1: <36} [{2}]\n'.format(n, member.path, path_orig))
+                    fd_pjs.write(code_pjs)
                     member.size = fd_pjs.tell()
                     fd_pjs.seek(0)
                     pjsball.addfile(member, fd_pjs)
@@ -222,7 +226,6 @@ def _get_waf(ctx):
 
     waf = StringIO.StringIO()
     waf_hash = hashlib.sha1()
-
     if ctx.waf_uri is None:
         uri_scan = [
             ctx.file_waf_archive,
@@ -242,8 +245,11 @@ def _get_waf(ctx):
         if uri_wafz is None:
             raise RuntimeError('Unable to locate waf archive ({0}).'.format(waf_archive))
         elif uri_wafz[0:7].lower() == 'http://':
+            sys.stderr.write('INFO: Downloading {0} from {1} ...\n'.format(waf_ident, uri_wafz))
             urllib.urlretrieve(uri_wafz, ctx.file_waf_archive)
         elif uri_wafz != ctx.file_waf_archive and os.access(uri_wafz, os.R_OK):
+            sys.stderr.write('INFO: Copying {0} ...\n'.format(waf_ident))
+            sys.stderr.write('      {0}\n    + {1}\n'.format(uri_wafz, ctx.file_waf_archive))
             shutil.copyfile(uri_wafz, ctx.file_waf_archive)
         if os.access(ctx.file_waf_archive, os.R_OK):
             break
@@ -267,5 +273,4 @@ if __name__ == '__main__':
     ctx = _get_context()
 
     with tarfile.open(fileobj=_waf_to_pjs(_get_waf(ctx))) as pjsball:
-        pjsball.list()
         pjsball.extractall(ctx.path_extract)
