@@ -2,7 +2,7 @@
 
 
 waf_ident = 'waf-1.6.3'
-waf_hash = '86000f9349009340ea4124adf4ac1d167c6e012c'
+waf_hexdigest = '86000f9349009340ea4124adf4ac1d167c6e012c'
 
 waf_archive = '{0}.tar.bz2'.format(waf_ident)
 waf_url = 'http://waf.googlecode.com/files/{0}'.format(waf_archive)
@@ -117,10 +117,8 @@ if 'PYTHON' in os.environ:
     PYTHON = os.environ['PYTHON']
 else:
     PYTHON, reexec = _py_find()
-    if PYTHON is not None and reexec is False:
-        sys.stderr.write('Continuing with current Python executable ...\n')
-    elif PYTHON is not None and reexec is True:
-        sys.stderr.write('Re-executing under new Python executable ({0}) ...\n'.format(PYTHON))
+    if PYTHON is not None and reexec is True:
+        sys.stderr.write('WARNING: Re-executing under new Python executable ({0}) ...\n'.format(PYTHON))
         os.environ['PYTHON'] = PYTHON
         sys.argv[0:0] = [PYTHON]
         os.execv(PYTHON, sys.argv)
@@ -135,8 +133,9 @@ import re
 import urllib
 import tarfile
 import StringIO
-from hashlib import sha1
-from optparse import OptionParser
+import hashlib
+import optparse
+import shutil
 
 
 def _gen_xform(re_list):
@@ -157,10 +156,11 @@ def _gen_xform(re_list):
     return xall
 
 
-def _waf_to_pjs(waf, pjs):
+def _waf_to_pjs(waf, pjs=None):
 
+    if pjs is None:
+        pjs = StringIO.StringIO()
     pjsball = tarfile.open(fileobj=pjs, mode='w')
-
     re_path = _gen_xform(pjswaf_path_xform)
     re_code = _gen_xform(pjswaf_code_xform)
 
@@ -186,32 +186,86 @@ def _waf_to_pjs(waf, pjs):
     return pjs
 
 
-if __name__ == '__main__':
-    base = os.path.dirname(os.path.abspath(sys.argv[0] or '.'))
-    build = os.path.join(base, 'build')
-    buildlib = os.path.join(build, 'pjswaf')
-    parser = OptionParser()
-    parser.add_option('-w', '--uri', metavar='URI', default=os.path.join(build, waf_archive),
-        help="retrieve {ident} from URI [{build}, {remote}]".format(ident=waf_ident, build=build, remote=waf_url))
-    parser.add_option('-s', '--hash', default=waf_hash,
-        help="expected sha1 of URI [%default]")
-    opts, args = parser.parse_args()
-    if not os.access(build, os.R_OK|os.W_OK):
-        os.mkdir(build)
-    os.chdir(build)
-    try:
-        with open(opts.uri, 'rb'):
-            wafz = opts.uri
-    except IOError:
-        wafz = urllib.urlretrieve(waf_url, waf_archive)[0]
-    pjs = StringIO.StringIO()
-    with open(wafz, 'rb') as w:
-        waf = StringIO.StringIO(w.read())
-        if sha1(waf.read()).hexdigest() != opts.hash:
-            raise ValueError('Waf archive is corrupted.')
+def _get_context():
+
+    parser = optparse.OptionParser(description='Download waf, generate pjswaf.')
+    cwd = os.getcwd()
+
+    parser.add_option('-b', metavar='BASE', default=cwd, dest='path_base',
+        help='BASE working directory [%default]')
+    parser.add_option('-u', metavar='URI', dest='waf_uri',
+        help='retrieve {0} from URI [BASE/build/{1}, {2}]'.format(waf_ident, waf_archive, waf_url))
+    parser.add_option('-d', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
+        help='expected SHA1 digest of URI [%default]')
+
+    ctx, args = parser.parse_args()
+    if len(args) > 0:
+        raise ValueError('{0} does not accept arguments.'.format(sys.argv[0]))
+    if ctx.path_base != cwd:
+        ctx.path_base = os.path.abspath(ctx.path_base)
+
+    ctx._update_loose({
+        'path_cwd': cwd,
+        'path_build': os.path.join(ctx.path_base, 'build'),
+        'path_extract': os.path.join(ctx.path_base, 'build', 'pjswaf'),
+        'file_waf_archive': os.path.join(ctx.path_base, 'build', waf_archive),
+        'file_waf_archive_alt': os.path.join(cwd, waf_archive),
+    })
+
+    return ctx
+
+
+def _get_waf(ctx):
+
+    if not os.access(ctx.path_build, os.R_OK|os.W_OK):
+        os.makedirs(ctx.path_build)
+
+    waf = StringIO.StringIO()
+    waf_hash = hashlib.sha1()
+
+    if ctx.waf_uri is None:
+        uri_scan = [
+            ctx.file_waf_archive,
+            ctx.file_waf_archive_alt,
+            waf_url,
+            None,
+        ]
+    else:
+        if ctx.waf_uri[0:7].lower() != 'http://':
+            ctx.waf_uri = os.path.abspath(ctx.waf_uri)
+        uri_scan = [
+            ctx.waf_uri,
+            None,
+        ]
+
+    for uri_wafz in uri_scan:
+        if uri_wafz is None:
+            raise RuntimeError('Unable to locate waf archive ({0}).'.format(waf_archive))
+        elif uri_wafz[0:7].lower() == 'http://':
+            urllib.urlretrieve(uri_wafz, ctx.file_waf_archive)
+        elif uri_wafz != ctx.file_waf_archive and os.access(uri_wafz, os.R_OK):
+            shutil.copyfile(uri_wafz, ctx.file_waf_archive)
+        if os.access(ctx.file_waf_archive, os.R_OK):
+            break
+
+    with open(ctx.file_waf_archive, 'rb') as wafz:
+        kbytes = wafz.read(4096)
+        while kbytes:
+            waf_hash.update(kbytes)
+            waf.write(kbytes)
+            kbytes = wafz.read(4096)
         waf.seek(0)
-    pjsball = tarfile.open(fileobj=_waf_to_pjs(waf, pjs))
-    pjsball.list()
-    pjsball.extractall(buildlib)
-    for fd in pjsball, pjs, waf:
-        fd.close()
+
+    if waf_hash.hexdigest() != ctx.waf_hexdigest:
+        raise ValueError('Waf archive is corrupted.')
+
+    return waf
+
+
+if __name__ == '__main__':
+
+    ctx = _get_context()
+
+    with tarfile.open(fileobj=_waf_to_pjs(_get_waf(ctx))) as pjsball:
+        pjsball.list()
+        pjsball.extractall(ctx.path_extract)
