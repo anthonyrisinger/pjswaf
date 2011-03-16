@@ -161,6 +161,12 @@ def _waf_to_pjs(waf, pjs=None):
     sys.stderr.write('INFO: Generating pjswaf from waf ...\n')
     if pjs is None:
         pjs = StringIO.StringIO()
+    if sys.platform != 'win32':
+        pjswaf_code_xform.append((
+            '__bang__',
+                '#! */usr/bin/env +python *',
+                '#!{0}'.format(PYTHON),
+        ))
     pjsball = tarfile.open(fileobj=pjs, mode='w')
     re_path = _gen_xform(pjswaf_path_xform)
     re_code = _gen_xform(pjswaf_code_xform)
