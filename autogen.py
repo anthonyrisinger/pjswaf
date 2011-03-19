@@ -246,6 +246,9 @@ def _get_waf(ctx):
     else:
         if ctx.waf_uri[0:7].lower() != 'http://':
             ctx.waf_uri = os.path.abspath(ctx.waf_uri)
+            if not os.access(ctx.waf_uri, os.R_OK):
+                raise RuntimeError('Waf archive {0} does not exist.'.format(ctx.waf_uri))
+        sys.stderr.write('INFO: Using provided URI to waf archive ...\n'.format(waf_ident))
         uri_scan = [
             ctx.waf_uri,
             None,
@@ -257,7 +260,7 @@ def _get_waf(ctx):
         elif uri_wafz[0:7].lower() == 'http://':
             sys.stderr.write('INFO: Downloading {0} from {1} ...\n'.format(waf_ident, uri_wafz))
             urllib.urlretrieve(uri_wafz, ctx.file_waf_archive)
-        elif uri_wafz != ctx.file_waf_archive and os.access(uri_wafz, os.R_OK):
+        elif uri_wafz != ctx.file_waf_archive:
             sys.stderr.write('INFO: Copying {0} ...\n'.format(waf_ident))
             sys.stderr.write('      {0}\n    + {1}\n'.format(uri_wafz, ctx.file_waf_archive))
             shutil.copyfile(uri_wafz, ctx.file_waf_archive)
