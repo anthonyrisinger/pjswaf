@@ -7,7 +7,7 @@ waf_hexdigest = '86000f9349009340ea4124adf4ac1d167c6e012c'
 waf_archive = '{0}.tar.bz2'.format(waf_ident)
 waf_url = 'http://waf.googlecode.com/files/{0}'.format(waf_archive)
 
-py_version_range = (0x20600ef, 0x30000f0)
+py_version_range = (0x20600f0, 0x30000f0)
 py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
 # (ident, match, sub)
@@ -76,57 +76,62 @@ import subprocess
 
 def _py_find():
 
-    class PyFound2x(Exception):
-        pass
+    py_export = os.environ.get('PYTHON')
+    py_test = '\n'.join([
+        'import sys, os',
+        't = [sys.hexversion, os.path.abspath(sys.executable)]',
+        'sys.stdout.write("\\0".join(map(str, t)))',
+    ])
 
-    def test(py, reexec=True):
+    def _py_test(py, required=False):
+
+        executable = None
+
         try:
-            stdout = subprocess.Popen([py, '-c', _py_version_test], stdout=subprocess.PIPE).communicate()[0]
-            if len(stdout) > 0:
-                hexversion, executable = [str(x.decode('utf8')) for x in stdout.split(b'\0')]
-                if py_version_range[0] < int(hexversion) < py_version_range[1] and os.path.isfile(executable):
-                    raise PyFound2x(executable, reexec)
+            stdout = subprocess.Popen([py, '-c', py_test], stdout=subprocess.PIPE).communicate()[0]
         except OSError:
             pass
+        else:
+            if len(stdout) > 0:
+                h, e = [str(x.decode('utf8')) for x in stdout.split(b'\0')]
+                if py_version_range[0] <= int(h) < py_version_range[1] and os.path.isfile(e):
+                    executable = e
 
-    try:
-        test(sys.executable, False)
+        if required and executable is None:
+            raise RuntimeError('FATAL: Python 2.x required, supplied {0}'.format(py))
+
+        return executable
+
+    py_self = sys.executable and _py_test(sys.executable) or None
+    py_export = py_export and _py_test(py_export, True) or py_self
+
+    if not py_export:
         for py in py_version_scan:
-            test(py)
-    except PyFound2x as pf:
-        return pf.args
-    else:
-        return None, False
+            py_export = _py_test(py)
+            if py_export:
+                break
 
-
-_py_version_test = r"""
-
-import sys
-import os
-
-pkg = [
-    sys.hexversion,
-    os.path.abspath(sys.executable),
-]
-
-sys.stdout.write('\0'.join(map(str, pkg)))
-
-"""
-
-if 'PYTHON' in os.environ:
-    PYTHON = os.environ['PYTHON']
-else:
-    PYTHON, reexec = _py_find()
-    if PYTHON is not None and reexec is True:
-        sys.stderr.write('WARN: Re-executing under python2.x executable [{0}] ...\n'.format(PYTHON))
-        os.environ['PYTHON'] = PYTHON
-        sys.argv[0:0] = [PYTHON]
-        os.execv(PYTHON, sys.argv)
+    if not py_self and not py_export:
+        sys.stderr.write('WARN: Unable to verify PYTHON executable, trying {0} ...\n'.format(sys.executable))
+    elif not py_self and py_export:
+        sys.stderr.write('WARN: Re-executing under {0} ...\n'.format(py_export))
+        os.environ['PYTHON'] = py_export
+        sys.argv[0:0] = [py_export]
+        os.execv(py_export, sys.argv)
         # possibly needed for windows (no support for process replacement?)
         sys.exit()
     else:
-        sys.stderr.write('INFO: Unable to verify Python executable, ignoring ...\n')
-    os.environ['PYTHON'] = PYTHON or sys.executable
+        sys.stderr.write('INFO: Verified PYTHON as {0} ...\n'.format(py_export))
+
+    return py_export
+
+
+# At this point we'll either die, reexec, or try anyways
+PYTHON = _py_find() or None
+if PYTHON:
+    os.environ['PYTHON'] = PYTHON
+elif 'PYTHON' in os.environ:
+    del os.environ['PYTHON']
 
 
 import re
@@ -161,7 +166,7 @@ def _waf_to_pjs(waf, pjs=None):
     sys.stderr.write('INFO: Generating pjswaf from waf ...\n')
     if pjs is None:
         pjs = StringIO.StringIO()
-    if sys.platform != 'win32':
+    if PYTHON and sys.platform != 'win32':
         pjswaf_code_xform.append((
             '__bang__',
                 '#! */usr/bin/env +python *',
