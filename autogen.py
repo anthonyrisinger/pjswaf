@@ -152,9 +152,10 @@ def _gen_xform(re_list):
     re_all = re.compile('|'.join(re_all))
     def xone(match):
         # This little trick works because the `ident` group always matches
-        # last; it represents the entire match, encompasses all sub-matches if
-        # any, and is OR'ed at the top level). The engine is unable to complete
-        # the group until it reaches the end of the match.
+        # last -- it represents the entire match, encompasses all sub-matches
+        # (if any), and OR'ed at the top level. The engine cannot complete
+        # the group until it reaches the end of the match ... thus `lastgroup`
+        # _always_ points to `ident` ...
         return match.expand(map_sub[match.lastgroup])
     def xall(text):
         return re_all.subn(xone, text)
@@ -176,9 +177,7 @@ def _waf_to_pjs(waf, pjs=None):
     re_path = _gen_xform(pjswaf_path_xform)
     re_code = _gen_xform(pjswaf_code_xform)
 
-    # Compound `with` statements are not supported until 2.7 and methinks at
-    # least one or two people would throw a fit about this ;-) ... *trying*
-    # to keep everything compatible to 2.6 ...
+    # Compound `with` statements are not supported until 2.7 ...
     with tarfile.open(fileobj=waf) as wafball:
         with tarfile.open(fileobj=pjs, mode='w') as pjsball:
             for member in wafball.getmembers():
