@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# Must be an iterable.
+relpath_build = ('waf2pjs', 'build')
 
 waf_ident = 'waf-1.6.3'
 waf_hexdigest = '86000f9349009340ea4124adf4ac1d167c6e012c'
@@ -205,26 +207,39 @@ def _get_context():
     parser = optparse.OptionParser(description='Download waf, generate pjswaf.')
     cwd = os.getcwd()
 
-    parser.add_option('-b', metavar='BASE', default=cwd, dest='path_base',
-        help='BASE working directory [%default]')
     parser.add_option('-u', metavar='URI', dest='waf_uri',
         help='retrieve {0} from URI [BASE/build/{1}, {2}]'.format(waf_ident, waf_archive, waf_url))
     parser.add_option('-d', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
         help='expected SHA1 digest of URI [%default]')
 
+    # Hidden, but available for override; also simplifies updating.
+    parser.add_option('--path-cwd', default=cwd, help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-base', default=cwd, help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-build', default=None, help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-extract', default=None, help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-waf-archive', default=None, help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-waf-archive-alt', default=None, help=optparse.SUPPRESS_HELP)
+
     ctx, args = parser.parse_args()
     if len(args) > 0:
         raise ValueError('{0} does not accept arguments.'.format(sys.argv[0]))
-    if ctx.path_base != cwd:
-        ctx.path_base = os.path.abspath(ctx.path_base)
 
-    ctx._update_loose({
-        'path_cwd': cwd,
-        'path_build': os.path.join(ctx.path_base, 'build'),
-        'path_extract': os.path.join(ctx.path_base, 'build', 'pjswaf'),
-        'file_waf_archive': os.path.join(ctx.path_base, 'build', waf_archive),
-        'file_waf_archive_alt': os.path.join(cwd, waf_archive),
-    })
+    if not ctx.path_cwd:
+        ctx.path_cwd = cwd
+    if not ctx.path_base:
+        ctx.path_base = cwd
+    if not ctx.path_build:
+        ctx.path_build = os.path.join(ctx.path_base, *relpath_build)
+    if not ctx.path_extract:
+        ctx.path_extract = os.path.join(ctx.path_build, 'pjswaf')
+    if not ctx.path_waf_archive:
+        ctx.path_waf_archive = os.path.join(ctx.path_build, waf_archive)
+    if not ctx.path_waf_archive_alt:
+        ctx.path_waf_archive_alt = os.path.join(cwd, waf_archive)
+
+    for p in ['cwd','base','build','extract','waf_archive','waf_archive_alt']:
+        p = 'path_' + p
+        setattr(ctx, p, os.path.abspath(getattr(ctx, p)))
 
     return ctx
 
@@ -238,8 +253,8 @@ def _get_waf(ctx):
     waf_hash = hashlib.sha1()
     if ctx.waf_uri is None:
         uri_scan = [
-            ctx.file_waf_archive,
-            ctx.file_waf_archive_alt,
+            ctx.path_waf_archive,
+            ctx.path_waf_archive_alt,
             waf_url,
             None,
         ]
@@ -259,15 +274,15 @@ def _get_waf(ctx):
             raise RuntimeError('Unable to locate waf archive ({0}).'.format(waf_archive))
         elif uri_wafz[0:7].lower() == 'http://':
             sys.stderr.write('INFO: Downloading {0} from {1} ...\n'.format(waf_ident, uri_wafz))
-            urllib.urlretrieve(uri_wafz, ctx.file_waf_archive)
-        elif uri_wafz != ctx.file_waf_archive and os.access(uri_wafz, os.R_OK):
+            urllib.urlretrieve(uri_wafz, ctx.path_waf_archive)
+        elif uri_wafz != ctx.path_waf_archive and os.access(uri_wafz, os.R_OK):
             sys.stderr.write('INFO: Copying {0} ...\n'.format(waf_ident))
-            sys.stderr.write('      {0}\n    + {1}\n'.format(uri_wafz, ctx.file_waf_archive))
-            shutil.copyfile(uri_wafz, ctx.file_waf_archive)
-        if os.access(ctx.file_waf_archive, os.R_OK):
+            sys.stderr.write('      {0}\n    + {1}\n'.format(uri_wafz, ctx.path_waf_archive))
+            shutil.copyfile(uri_wafz, ctx.path_waf_archive)
+        if os.access(ctx.path_waf_archive, os.R_OK):
             break
 
-    with open(ctx.file_waf_archive, 'rb') as wafz:
+    with open(ctx.path_waf_archive, 'rb') as wafz:
         kbytes = wafz.read(4096)
         while kbytes:
             waf_hash.update(kbytes)

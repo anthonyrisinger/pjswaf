@@ -1,2 +1,3 @@
-/build
+/waf2pjs/build
+/waf2pjs/waf-*
 *.swp
