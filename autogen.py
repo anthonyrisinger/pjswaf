@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
-# Must be an iterable.
-relpath_build = ('waf2pjs', 'build')
+
+# Must be a list of path components.
+relpath_base = ['waf2pjs']
+relpath_gen = ['gen']
 
 waf_ident = 'waf-1.6.3'
 waf_hexdigest = '86000f9349009340ea4124adf4ac1d167c6e012c'
@@ -9,66 +11,71 @@ waf_hexdigest = '86000f9349009340ea4124adf4ac1d167c6e012c'
 waf_archive = '{0}.tar.bz2'.format(waf_ident)
 waf_url = 'http://waf.googlecode.com/files/{0}'.format(waf_archive)
 
-py_version_range = (0x20600f0, 0x30000f0)
-py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
+# (regex) `re`  pattern to match against
+# (regex) `sub` substitute pattern for `re` (optional)
+# (ident) `id`  full `re` match for use in `sub`, eg. \g<my_id> (optional)
+#
+# The first matching `re` will be used; others will not be tried. `id` must
+# be both unique to the group AND valid identifier! Only named groups are
+# supported; using numbered groups is undefined (final regex is single-pass).
+# If `sub` is ommitted, `re` acts as a filter and `id` is ignored; if `id`
+# is ommitted, `sub` will replace full `re` match (if no other groups used).
+#
+# Waf paths matching any filter are included.
+# re, sub, id (see above)
+pjswaf_path_filter = [
 
-# (ident, match, sub)
-# The first matching expression will be used; others are not tried. `ident` must
-# be both unique AND valid identifier! Only named groups are supported; numbered
-# groups will produce unexpected results (final regex is combined, single-pass).
-pjswaf_path_xform = [
+    # Exec template/generator
+    {'re': '^waf-light$'},
 
-    ('light',
-    r'^waf-light$',
-        r'pjswaf-light'),
+    # How to build a build system :-)
+    {'re': '^wscript$'},
 
-    ('jam',
-    r'^wscript$',
-        r'jamfile'),
+    # Core library
+    {'re': r'^waflib/[^/]*\.py$'},
 
-    ('lib',
-    r'^waflib/[^/]*\.py$',
-        r'pjs\g<lib>'),
+    # Select few useful core modules
+    {'re': r'^waflib/Tools/(__init__|python|errcheck|gnu_dirs)\.py$'},
 
-    ('tools',
-    r'^waflib/Tools/(__init__|python|errcheck|gnu_dirs)\.py$',
-        r'pjs\g<tools>'),
-
-    ('extras',
-    r'^waflib/extras/(__init__|parallel_debug|why)\.py$',
-        r'pjs\g<extras>'),
+    # Select few useful 3rd-party modules
+    {'re': r'^waflib/extras/(__init__|parallel_debug|why)\.py$'},
 
 ]
 
-# (ident, match, sub)
-# Same as above.
+# Arbitrary code transforms.
+# re, sub, id (see above)
 pjswaf_code_xform = [
 
-    ('waf0',
-    r'waf',
-        r'pjswaf'),
-
-    ('waf1',
-    r'Waf',
-        r'Pjswaf'),
-
-    ('waf2',
-    r'WAF',
-        r'PJSWAF'),
-
-    ('jam0',
-    r'wscript',
-        r'jamfile'),
-
-    ('jam1',
-    r'WSCRIPT',
-        r'JAMFILE'),
-
-    ('compat',
-    r'\.compat15',
-        r''),
+    # Remove the ghost import for now
+    {'re': r'\.compat15',
+        'sub': ''},
 
 ]
+
+# Alternative names for waf[lib]/wscript; IDENTIFIERS ONLY.
+# lower, Title, and UPPERCASE versions will be generated.
+# re, sub, id (see above)
+alt_ident_xlate = [
+
+    # [default] Use `--alt-waf` to override
+    {'re': 'waf',
+        'sub': 'pjswaf'},
+
+    # [default] Use `--alt-wscript` to override
+    {'re': 'wscript',
+        'sub': 'jamfile'},
+
+]
+
+# Replace with Capitalized and UPPERCASE versions of `alt_ident_xlate`
+alt_ident_xlate = [
+    {'re': getattr(x['re'], op)(), 'sub': getattr(x['sub'], op)()}
+    for op in ('lower', 'title', 'upper')
+        for x in alt_ident_xlate
+]
+
+py_version_range = (0x20600f0, 0x30000f0)
+py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
 
 import sys
@@ -114,16 +121,16 @@ def _py_find():
                 break
 
     if not py_self and not py_export:
-        sys.stderr.write('WARN: Unable to verify PYTHON executable, trying {0} ...\n'.format(sys.executable))
+        sys.stderr.write('WARN : Unable to verify PYTHON executable, trying {0} ...\n'.format(sys.executable))
     elif not py_self and py_export:
-        sys.stderr.write('WARN: Re-executing under {0} ...\n'.format(py_export))
+        sys.stderr.write('WARN : Re-executing under {0} ...\n'.format(py_export))
         os.environ['PYTHON'] = py_export
         sys.argv[0:0] = [py_export]
         os.execv(py_export, sys.argv)
         # possibly needed for windows (no support for process replacement?)
         sys.exit()
     else:
-        sys.stderr.write('INFO: Verified PYTHON as {0} ...\n'.format(py_export))
+        sys.stderr.write('DEBUG: Verified PYTHON as {0} ...\n'.format(py_export))
 
     return py_export
 
@@ -148,17 +155,20 @@ import shutil
 def _gen_xform(re_list):
     re_all = []
     map_sub = {}
-    for ident, pattern, sub in re_list:
-        re_all.append('(?P<{0}>{1})'.format(ident, pattern))
-        map_sub[ident] = sub
+    for iid, frag in enumerate(re_list):
+        iid = frag.get('id') or '__{0}__'.format(iid)
+        tracker = '(?P<{0}>{1})'.format(iid, frag['re'])
+        re_all.append(tracker)
+        if 'sub' in frag:
+            map_sub[iid] = frag['sub']
     re_all = re.compile('|'.join(re_all))
     def xone(match):
-        # This little trick works because the `ident` group always matches
-        # last -- it represents the entire match, encompasses all sub-matches
-        # (if any), and OR'ed at the top level. The engine cannot complete
-        # the group until it reaches the end of the match ... thus `lastgroup`
-        # _always_ points to `ident` ...
-        return match.expand(map_sub[match.lastgroup])
+        # This trick w3rks because the `id` group is gauranteed to match last.
+        # OR'ed at top level, group `id` is the entire match, and wraps all
+        # sub-groups (if any). As the engine cannot complete the group until
+        # it reaches the final char, `lastgroup` will _always_ be `id`.
+        re_sub = map_sub.get(match.lastgroup)
+        return match.group(0) if re_sub is None else match.expand(re_sub)
     def xall(text):
         return re_all.subn(xone, text)
     return xall
@@ -166,18 +176,18 @@ def _gen_xform(re_list):
 
 def _waf_to_pjs(waf, pjs=None):
 
-    sys.stderr.write('INFO: Generating pjswaf from waf ...\n')
+    sys.stderr.write('INFO : Generating pjswaf from waf ...\n')
     if pjs is None:
         pjs = StringIO.StringIO()
     if PYTHON and sys.platform != 'win32':
-        pjswaf_code_xform.append((
-            '__bang__',
-                '#! */usr/bin/env +python *',
-                '#!{0}'.format(PYTHON),
-        ))
+        pjswaf_code_xform.append({
+            're': '#! */usr/bin/env +python *',
+            'sub': '#!{0}'.format(PYTHON),
+        })
     pjsball = tarfile.open(fileobj=pjs, mode='w')
-    re_path = _gen_xform(pjswaf_path_xform)
+    re_path = _gen_xform(pjswaf_path_filter)
     re_code = _gen_xform(pjswaf_code_xform)
+    re_ident = _gen_xform(alt_ident_xlate)
 
     # Compound `with` statements are not supported until 2.7 ...
     with tarfile.open(fileobj=waf) as wafball:
@@ -185,12 +195,14 @@ def _waf_to_pjs(waf, pjs=None):
             for member in wafball.getmembers():
                 member.path = member.path.replace(waf_ident,'').lstrip('./')
                 path_orig = member.path
-                member.path, n = re_path(member.path)
-                if n > 0:
-                    sys.stderr.write('    + ')
+                member.path, n0 = re_path(member.path)
+                if n0 > 0:
+                    member.path = re_ident(member.path)[0]
+                    sys.stderr.write('     + ')
                     fd_pjs = StringIO.StringIO()
-                    code_pjs, n = re_code(wafball.extractfile(member).read())
-                    sys.stderr.write('{0: <3} {1: <36} [{2}]\n'.format(n, member.path, path_orig))
+                    code_pjs, n0 = re_code(wafball.extractfile(member).read())
+                    code_pjs, n1 = re_ident(code_pjs)
+                    sys.stderr.write('{0: <3} {1: <36} [{2}]\n'.format(n0+n1, member.path, path_orig))
                     fd_pjs.write(code_pjs)
                     member.size = fd_pjs.tell()
                     fd_pjs.seek(0)
@@ -207,18 +219,21 @@ def _get_context():
     parser = optparse.OptionParser(description='Download waf, generate pjswaf.')
     cwd = os.getcwd()
 
-    parser.add_option('-u', metavar='URI', dest='waf_uri',
-        help='retrieve {0} from URI [BASE/build/{1}, {2}]'.format(waf_ident, waf_archive, waf_url))
-    parser.add_option('-d', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
-        help='expected SHA1 digest of URI [%default]')
+    parser.add_option('--uri', metavar='URI',dest='waf_uri',
+        help='retrieve {0} from URI [<localcache>, <upstream>]'.format(waf_archive))
+    parser.add_option('--sha1', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
+        help='expected SHA1 hexdigest of URI [%default]')
+    parser.add_option('--waf', metavar='IDENT', dest='alt_waf',
+        help='build application name/identity [pjswaf]')
+    parser.add_option('--wscript', metavar='FILENAME', dest='alt_wscript',
+        help='instruction filename, eg. Makefile [jamfile]')
 
     # Hidden, but available for override; also simplifies updating.
     parser.add_option('--path-cwd', default=cwd, help=optparse.SUPPRESS_HELP)
-    parser.add_option('--path-base', default=cwd, help=optparse.SUPPRESS_HELP)
-    parser.add_option('--path-build', default=None, help=optparse.SUPPRESS_HELP)
-    parser.add_option('--path-extract', default=None, help=optparse.SUPPRESS_HELP)
-    parser.add_option('--path-waf-archive', default=None, help=optparse.SUPPRESS_HELP)
-    parser.add_option('--path-waf-archive-alt', default=None, help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-base', help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-gen', help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-extract', help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-cache-archive', help=optparse.SUPPRESS_HELP)
 
     ctx, args = parser.parse_args()
     if len(args) > 0:
@@ -227,34 +242,48 @@ def _get_context():
     if not ctx.path_cwd:
         ctx.path_cwd = cwd
     if not ctx.path_base:
-        ctx.path_base = cwd
-    if not ctx.path_build:
-        ctx.path_build = os.path.join(ctx.path_base, *relpath_build)
+        ctx.path_base = os.path.join(ctx.path_cwd, *relpath_base)
+    if not ctx.path_gen:
+        ctx.path_gen = os.path.join(ctx.path_base, *relpath_gen)
     if not ctx.path_extract:
-        ctx.path_extract = os.path.join(ctx.path_build, 'pjswaf')
-    if not ctx.path_waf_archive:
-        ctx.path_waf_archive = os.path.join(ctx.path_build, waf_archive)
-    if not ctx.path_waf_archive_alt:
-        ctx.path_waf_archive_alt = os.path.join(cwd, waf_archive)
+        ctx.path_extract = os.path.join(ctx.path_gen, 'pjswaf')
+    if not ctx.path_cache_archive:
+        ctx.path_cache_archive = os.path.join(ctx.path_gen, waf_archive)
 
-    for p in ['cwd','base','build','extract','waf_archive','waf_archive_alt']:
-        p = 'path_' + p
+    for p in ['path_cwd', 'path_base', 'path_gen', 'path_extract', 'path_cache_archive']:
         setattr(ctx, p, os.path.abspath(getattr(ctx, p)))
+
+    # Update known translations
+    if ctx.alt_waf or ctx.alt_wscript:
+        for x in alt_ident_xlate:
+            re_xlate = x.get('re')
+            if ctx.alt_waf and re_xlate == 'waf':
+                x['re'] = ctx.alt_waf
+            elif ctx.alt_wscript and re_xlate == 'wscript':
+                x['re'] = ctx.alt_wscript
+
+    # Replace/generate lower, Title, and UPPERCASE versions of `alt_ident_xlate`
+    alt_ident_xlate[:] = [ 
+        {'re': getattr(x['re'], op)(), 'sub': getattr(x['sub'], op)()}
+        for op in ('lower', 'title', 'upper')
+            for x in alt_ident_xlate
+    ]
 
     return ctx
 
 
 def _get_waf(ctx):
 
-    if not os.access(ctx.path_build, os.R_OK|os.W_OK):
-        os.makedirs(ctx.path_build)
+    if not os.access(ctx.path_gen, os.R_OK|os.W_OK):
+        os.makedirs(ctx.path_gen)
 
     waf = StringIO.StringIO()
     waf_hash = hashlib.sha1()
     if ctx.waf_uri is None:
         uri_scan = [
-            ctx.path_waf_archive,
-            ctx.path_waf_archive_alt,
+            ctx.path_cache_archive,
+            os.path.join(ctx.path_base, waf_archive),
+            os.path.join(ctx.path_cwd, waf_archive),
             waf_url,
             None,
         ]
@@ -263,7 +292,7 @@ def _get_waf(ctx):
             ctx.waf_uri = os.path.abspath(ctx.waf_uri)
             if not os.access(ctx.waf_uri, os.R_OK):
                 raise RuntimeError('Waf archive {0} does not exist.'.format(ctx.waf_uri))
-        sys.stderr.write('INFO: URI to waf archive: {0} ...\n'.format(ctx.waf_uri))
+        sys.stderr.write('INFO : URI to waf archive: {0} ...\n'.format(ctx.waf_uri))
         uri_scan = [
             ctx.waf_uri,
             None,
@@ -273,16 +302,16 @@ def _get_waf(ctx):
         if uri_wafz is None:
             raise RuntimeError('Unable to locate waf archive ({0}).'.format(waf_archive))
         elif uri_wafz[0:7].lower() == 'http://':
-            sys.stderr.write('INFO: Downloading {0} from {1} ...\n'.format(waf_ident, uri_wafz))
-            urllib.urlretrieve(uri_wafz, ctx.path_waf_archive)
-        elif uri_wafz != ctx.path_waf_archive and os.access(uri_wafz, os.R_OK):
-            sys.stderr.write('INFO: Copying {0} ...\n'.format(waf_ident))
-            sys.stderr.write('      {0}\n    + {1}\n'.format(uri_wafz, ctx.path_waf_archive))
-            shutil.copyfile(uri_wafz, ctx.path_waf_archive)
-        if os.access(ctx.path_waf_archive, os.R_OK):
+            sys.stderr.write('INFO : Downloading {0} from {1} ...\n'.format(waf_ident, uri_wafz))
+            urllib.urlretrieve(uri_wafz, ctx.path_cache_archive)
+        elif uri_wafz != ctx.path_cache_archive and os.access(uri_wafz, os.R_OK):
+            sys.stderr.write('INFO : Copying {0} ...\n'.format(waf_ident))
+            sys.stderr.write('       {0}\n     + {1}\n'.format(uri_wafz, ctx.path_cache_archive))
+            shutil.copyfile(uri_wafz, ctx.path_cache_archive)
+        if os.access(ctx.path_cache_archive, os.R_OK):
             break
 
-    with open(ctx.path_waf_archive, 'rb') as wafz:
+    with open(ctx.path_cache_archive, 'rb') as wafz:
         kbytes = wafz.read(4096)
         while kbytes:
             waf_hash.update(kbytes)
