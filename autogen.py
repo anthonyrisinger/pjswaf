@@ -238,20 +238,20 @@ def _get_context():
     for p in ['path_cwd', 'path_base', 'path_gen', 'path_extract', 'path_cache_archive']:
         setattr(ctx, p, os.path.abspath(getattr(ctx, p)))
 
-    # Update known translations
-    if ctx.alt_waf or ctx.alt_wscript:
-        for x in alt_ident_xlate:
-            re_xlate = x.get('re')
-            if ctx.alt_waf and re_xlate == 'waf':
-                x['re'] = ctx.alt_waf
-            elif ctx.alt_wscript and re_xlate == 'wscript':
-                x['re'] = ctx.alt_wscript
+    # Update translations
+    if ctx.alt_waf and not re.match('[a-z_][a-z0-9_]*', ctx.alt_waf, re.I):
+        raise ValueError('--waf only accepts valid identifiers.')
+    if ctx.alt_wscript and not re.match('[a-z_][a-z0-9_]*', ctx.alt_wscript, re.I):
+        raise ValueError('--wscript only accepts valid identifiers.')
+    ctx.alt_waf = alt_ident['waf'] = ctx.alt_waf or alt_ident['waf']
+    ctx.alt_wscript = alt_ident['wscript'] = ctx.alt_wscript or alt_ident['wscript']
 
-    # Replace/generate lower, Title, and UPPERCASE versions of `alt_ident_xlate`
+
+    # Generate lower, Title, and UPPERCASE versions of `alt_ident`
     alt_ident_xlate[:] = [ 
-        {'re': getattr(x['re'], op)(), 'sub': getattr(x['sub'], op)()}
+        {'re': getattr(re_re, op)(), 'sub': getattr(re_sub, op)()}
         for op in ('lower', 'title', 'upper')
-            for x in alt_ident_xlate
+            for re_re, re_sub in alt_ident.iteritems()
     ]
 
     return ctx
