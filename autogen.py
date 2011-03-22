@@ -63,9 +63,43 @@ py_version_range = (0x20600f0, 0x30000f0)
 py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '.exe'])
 
 
-import sys
-import os
-import subprocess
+# PREMAIN
+import sys, os, subprocess, logging
+
+
+class _o(object):
+
+    _levels = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+
+    _out = logging.getLogger()
+    _out.setLevel(logging.NOTSET)
+    _out.name = 'autogen'
+
+    O = 1
+    S = -1
+
+    def __init__(self):
+        h = logging.StreamHandler()
+        f = logging.Formatter("%(levelname)8s: %(message)s")
+        h.setLevel(self.D)
+        h.setFormatter(f)
+        self._out.addHandler(h)
+
+    def out(self, msg, *args, **kwds):
+        o = kwds.pop('o', self.O)
+        msg = msg.format(*args, **kwds)
+        if self.S < o < self.D:
+            o > 0 and sys.stderr.write(o * '  ')
+            sys.stderr.write(msg)
+        else: 
+            self._out.log(o, msg)
+        return msg
+
+for x in _o._levels:
+    setattr(_o, x[0], getattr(logging, x))
+
+o = _o()
+_ = o.out
 
 
 def _py_find():
@@ -92,7 +126,7 @@ def _py_find():
                     executable = e
 
         if required and executable is None:
-            raise RuntimeError('FATAL: Python 2.x required, supplied {0}'.format(py))
+            raise RuntimeError(_('Python 2.x required, supplied {0}', py, o=o.S))
 
         return executable
 
@@ -106,16 +140,16 @@ def _py_find():
                 break
 
     if not py_self and not py_export:
-        sys.stderr.write('WARN : Unable to verify PYTHON executable, trying {0} ...\n'.format(sys.executable))
+        _('Unable to verify PYTHON executable, trying {0} ...', sys.executable, o=o.W)
     elif not py_self and py_export:
-        sys.stderr.write('WARN : Re-executing under {0} ...\n'.format(py_export))
+        _('Re-executing under {0} ...', py_export, o=o.W)
         os.environ['PYTHON'] = py_export
         sys.argv[0:0] = [py_export]
         os.execv(py_export, sys.argv)
         # possibly needed for windows (no support for process replacement?)
         sys.exit()
     else:
-        sys.stderr.write('DEBUG: Verified PYTHON as {0} ...\n'.format(py_export))
+        _('Verified PYTHON as {0} ...', py_export, o=o.D)
 
     return py_export
 
@@ -128,13 +162,8 @@ elif 'PYTHON' in os.environ:
     del os.environ['PYTHON']
 
 
-import re
-import urllib
-import tarfile
-import StringIO
-import hashlib
-import optparse
-import shutil
+# MAIN
+import re, urllib, tarfile, StringIO, hashlib, optparse, shutil
 
 
 def _gen_xform(re_list):
