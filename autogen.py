@@ -91,6 +91,8 @@ class o(object):
         for x in _levels
     ])
 
+    k = _logger.isEnabledFor
+
     @classmethod
     def out(cls, msg, *args, **kwds):
         o = kwds.pop('o', cls.O)
@@ -233,7 +235,7 @@ def _waf_to_alt(waf, alt=None):
 
 def _get_context():
 
-    parser = optparse.OptionParser(description='Download waf, generate {0}.'.format(alt_ident['waf']))
+    parser = optparse.OptionParser(description='Download waf, generate `--waf`.')
     cwd = os.getcwd()
 
     parser.add_option('--uri', metavar='URI',dest='waf_uri',
