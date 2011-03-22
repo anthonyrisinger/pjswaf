@@ -66,39 +66,43 @@ py_version_scan = ('python'+v+s for v in ['2', '2.7', '2.6', ''] for s in ['', '
 # PREMAIN
 import sys, os, subprocess, logging
 
+auto_name = os.path.basename(sys.argv[0]) or 'autogen.py'
 
-class _o(object):
+
+class o(object):
 
     _levels = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
 
-    _out = logging.getLogger()
-    _out.setLevel(logging.NOTSET)
-    _out.name = 'autogen'
+    _logger = logging.getLogger()
+    _logger.setLevel(logging.NOTSET)
+    _logger.name = auto_name
 
-    O = 1
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.DEBUG)
+
+    _formatter = logging.Formatter("%(levelname)8s: %(message)s")
+    _handler.setFormatter(_formatter)
+    _logger.addHandler(_handler)
+
+    O = 2
     S = -1
+    locals().update([
+        (x[0], getattr(logging, x))
+        for x in _levels
+    ])
 
-    def __init__(self):
-        h = logging.StreamHandler()
-        f = logging.Formatter("%(levelname)8s: %(message)s")
-        h.setLevel(self.D)
-        h.setFormatter(f)
-        self._out.addHandler(h)
-
-    def out(self, msg, *args, **kwds):
-        o = kwds.pop('o', self.O)
+    @classmethod
+    def out(cls, msg, *args, **kwds):
+        o = kwds.pop('o', cls.O)
         msg = msg.format(*args, **kwds)
-        if self.S < o < self.D:
-            o > 0 and sys.stderr.write(o * '  ')
+        if cls.S < o < cls.D:
+            o > 0 and sys.stderr.write(o * '    ')
             sys.stderr.write(msg)
+            sys.stderr.write('\n')
         else: 
-            self._out.log(o, msg)
+            cls._logger.log(o, msg)
         return msg
 
-for x in _o._levels:
-    setattr(_o, x[0], getattr(logging, x))
-
-o = _o()
 _ = o.out
 
 
@@ -126,7 +130,7 @@ def _py_find():
                     executable = e
 
         if required and executable is None:
-            raise RuntimeError(_('Python 2.x required, supplied {0}', py, o=o.S))
+            raise RuntimeError(_('Python 2.x required, supplied {0}', py, o=o.C))
 
         return executable
 
@@ -149,7 +153,7 @@ def _py_find():
         # possibly needed for windows (no support for process replacement?)
         sys.exit()
     else:
-        _('Verified PYTHON as {0} ...', py_export, o=o.D)
+        _('Verified PYTHON as {0} ...', py_export, o=o.I)
 
     return py_export
 
@@ -190,7 +194,7 @@ def _gen_xform(re_list):
 
 def _waf_to_alt(waf, alt=None):
 
-    sys.stderr.write('INFO : Generating {0} from waf ...\n'.format(alt_ident['waf']))
+    _('::::: Generating {0} from waf ...', alt_ident['waf'], o=1)
     if alt is None:
         alt = StringIO.StringIO()
     if PYTHON and sys.platform != 'win32':
@@ -212,11 +216,10 @@ def _waf_to_alt(waf, alt=None):
                 member.path, n0 = re_path(member.path)
                 if n0 > 0:
                     member.path = re_ident(member.path)[0]
-                    sys.stderr.write('     + ')
                     alt_fd = StringIO.StringIO()
                     alt_code, n0 = re_code(wafball.extractfile(member).read())
                     alt_code, n1 = re_ident(alt_code)
-                    sys.stderr.write('{0: <3} {1: <36} [{2}]\n'.format(n0+n1, member.path, path_orig))
+                    _('+ {0: <3} {1: <36} [{2}]', n0+n1, member.path, path_orig)
                     alt_fd.write(alt_code)
                     member.size = alt_fd.tell()
                     alt_fd.seek(0)
@@ -237,10 +240,10 @@ def _get_context():
         help='retrieve {0} from URI [<localcache>, <upstream>]'.format(waf_archive))
     parser.add_option('--sha1', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
         help='expected SHA1 hexdigest of URI [%default]')
-    parser.add_option('--waf', metavar='IDENT', dest='alt_waf',
-        help='build application name/identity [{0}]'.format(alt_ident['waf']))
-    parser.add_option('--wscript', metavar='FILENAME', dest='alt_wscript',
-        help='instruction filename, eg. Makefile [jamfile]')
+    parser.add_option('--waf', metavar='IDENT', default=alt_ident['waf'], dest='alt_waf',
+        help='build application name/identity [%default]')
+    parser.add_option('--wscript', metavar='FILENAME', default=alt_ident['wscript'], dest='alt_wscript',
+        help='instruction filename, eg. Makefile [%default]')
 
     # Hidden, but available for override; also simplifies updating.
     parser.add_option('--path-cwd', default=cwd, help=optparse.SUPPRESS_HELP)
@@ -251,15 +254,15 @@ def _get_context():
 
     ctx, args = parser.parse_args()
     if len(args) > 0:
-        raise ValueError('{0} does not accept arguments.'.format(sys.argv[0]))
+        raise ValueError(_('{0} does not accept arguments.', auto_name, o=o.C))
 
     # Update translations
-    if ctx.alt_waf and not re.match('[a-z_][a-z0-9_]*', ctx.alt_waf, re.I):
-        raise ValueError('--waf only accepts valid identifiers.')
-    if ctx.alt_wscript and not re.match('[a-z_][a-z0-9_]*', ctx.alt_wscript, re.I):
-        raise ValueError('--wscript only accepts valid identifiers.')
-    ctx.alt_waf = alt_ident['waf'] = ctx.alt_waf or alt_ident['waf']
-    ctx.alt_wscript = alt_ident['wscript'] = ctx.alt_wscript or alt_ident['wscript']
+    if not re.match('^[a-z_][a-z0-9_]*$', ctx.alt_waf, re.I):
+        raise ValueError(_('--waf requires an identifier; `{0}` is invalid.', ctx.alt_waf, o=o.C))
+    if not re.match('^[a-z_][a-z0-9_]*$', ctx.alt_wscript, re.I):
+        raise ValueError(_('--wscript requires an identifier; `{0}` is invalid.', ctx.alt_wscript, o=o.C))
+    ctx.alt_waf = alt_ident['waf'] = ctx.alt_waf
+    ctx.alt_wscript = alt_ident['wscript'] = ctx.alt_wscript
 
     # Generate lower, Title, and UPPERCASE versions of `alt_ident`
     alt_ident_xlate[:] = [ 
@@ -292,6 +295,7 @@ def _get_waf(ctx):
 
     waf = StringIO.StringIO()
     waf_hash = hashlib.sha1()
+    waf_pretty = None
     if ctx.waf_uri is None:
         uri_scan = [
             ctx.path_cache_archive,
@@ -303,9 +307,10 @@ def _get_waf(ctx):
     else:
         if ctx.waf_uri[0:7].lower() != 'http://':
             ctx.waf_uri = os.path.abspath(ctx.waf_uri)
-            if not os.access(ctx.waf_uri, os.R_OK):
-                raise RuntimeError('Waf archive {0} does not exist.'.format(ctx.waf_uri))
-        sys.stderr.write('INFO : URI to waf archive: {0} ...\n'.format(ctx.waf_uri))
+            waf_pretty = ctx.waf_uri.replace(os.getcwd(), '.')
+        else:
+            waf_pretty = ctx.waf_uri
+        _('URI to waf archive: {0} ...', waf_pretty , o=o.I)
         uri_scan = [
             ctx.waf_uri,
             None,
@@ -313,13 +318,14 @@ def _get_waf(ctx):
 
     for uri_wafz in uri_scan:
         if uri_wafz is None:
-            raise RuntimeError('Unable to locate waf archive ({0}).'.format(waf_archive))
+            raise RuntimeError(_('Unable to locate waf ({0}).', waf_pretty or waf_archive, o=o.C))
         elif uri_wafz[0:7].lower() == 'http://':
-            sys.stderr.write('INFO : Downloading {0} from {1} ...\n'.format(waf_ident, uri_wafz))
+            _('Downloading {0} from {1} ...', waf_ident, uri_wafz, o=o.I)
             urllib.urlretrieve(uri_wafz, ctx.path_cache_archive)
         elif uri_wafz != ctx.path_cache_archive and os.access(uri_wafz, os.R_OK):
-            sys.stderr.write('INFO : Copying {0} ...\n'.format(waf_ident))
-            sys.stderr.write('       {0}\n     + {1}\n'.format(uri_wafz, ctx.path_cache_archive))
+            _('Copying {0} ...', waf_ident, o=o.I)
+            _('  {0} ...', uri_wafz, o=o.I)
+            _('+ {0} ...', ctx.path_cache_archive, o=o.I)
             shutil.copyfile(uri_wafz, ctx.path_cache_archive)
         if os.access(ctx.path_cache_archive, os.R_OK):
             break
@@ -333,7 +339,7 @@ def _get_waf(ctx):
         waf.seek(0)
 
     if waf_hash.hexdigest() != ctx.waf_hexdigest:
-        raise ValueError('Waf archive is corrupted.')
+        raise ValueError(_('Waf archive is corrupted.', o=o.C))
 
     return waf
 
