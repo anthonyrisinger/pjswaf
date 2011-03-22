@@ -2,7 +2,7 @@
 
 
 # Must be a list of path components.
-relpath_base = ['genwaf']
+relpath_base = ['altwaf']
 relpath_out = ['out']
 
 waf_ident = 'waf-1.6.3'
@@ -159,24 +159,24 @@ def _gen_xform(re_list):
     return xall
 
 
-def _waf_to_pjs(waf, pjs=None):
+def _waf_to_alt(waf, alt=None):
 
     sys.stderr.write('INFO : Generating {0} from waf ...\n'.format(alt_ident['waf']))
-    if pjs is None:
-        pjs = StringIO.StringIO()
+    if alt is None:
+        alt = StringIO.StringIO()
     if PYTHON and sys.platform != 'win32':
         alt_code_xform.append({
             're': '#! */usr/bin/env +python *',
             'sub': '#!{0}'.format(PYTHON),
         })
-    pjsball = tarfile.open(fileobj=pjs, mode='w')
+    altball = tarfile.open(fileobj=alt, mode='w')
     re_path = _gen_xform(alt_path_filter)
     re_code = _gen_xform(alt_code_xform)
     re_ident = _gen_xform(alt_ident_xlate)
 
     # Compound `with` statements are not supported until 2.7 ...
     with tarfile.open(fileobj=waf) as wafball:
-        with tarfile.open(fileobj=pjs, mode='w') as pjsball:
+        with tarfile.open(fileobj=alt, mode='w') as altball:
             for member in wafball.getmembers():
                 member.path = member.path.replace(waf_ident,'').lstrip('./')
                 path_orig = member.path
@@ -184,19 +184,19 @@ def _waf_to_pjs(waf, pjs=None):
                 if n0 > 0:
                     member.path = re_ident(member.path)[0]
                     sys.stderr.write('     + ')
-                    fd_pjs = StringIO.StringIO()
-                    code_pjs, n0 = re_code(wafball.extractfile(member).read())
-                    code_pjs, n1 = re_ident(code_pjs)
+                    fd_alt = StringIO.StringIO()
+                    code_alt, n0 = re_code(wafball.extractfile(member).read())
+                    code_alt, n1 = re_ident(code_alt)
                     sys.stderr.write('{0: <3} {1: <36} [{2}]\n'.format(n0+n1, member.path, path_orig))
-                    fd_pjs.write(code_pjs)
-                    member.size = fd_pjs.tell()
-                    fd_pjs.seek(0)
-                    pjsball.addfile(member, fd_pjs)
+                    fd_alt.write(code_alt)
+                    member.size = fd_alt.tell()
+                    fd_alt.seek(0)
+                    altball.addfile(member, fd_alt)
 
     waf.seek(0)
-    pjs.seek(0)
+    alt.seek(0)
 
-    return pjs
+    return alt
 
 
 def _get_context():
@@ -313,5 +313,5 @@ if __name__ == '__main__':
 
     ctx = _get_context()
 
-    with tarfile.open(fileobj=_waf_to_pjs(_get_waf(ctx))) as pjsball:
-        pjsball.extractall(ctx.path_extract)
+    with tarfile.open(fileobj=_waf_to_alt(_get_waf(ctx))) as altball:
+        altball.extractall(ctx.path_extract)
