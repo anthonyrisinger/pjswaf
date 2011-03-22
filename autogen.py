@@ -3,7 +3,7 @@
 
 # Must be a list of path components.
 relpath_base = ['genwaf']
-relpath_gen = ['gen']
+relpath_out = ['out']
 
 waf_ident = 'waf-1.6.3'
 waf_hexdigest = '86000f9349009340ea4124adf4ac1d167c6e012c'
@@ -229,7 +229,7 @@ def _get_context():
     if not ctx.path_base:
         ctx.path_base = os.path.join(ctx.path_cwd, *relpath_base)
     if not ctx.path_gen:
-        ctx.path_gen = os.path.join(ctx.path_base, *relpath_gen)
+        ctx.path_gen = os.path.join(ctx.path_base, *relpath_out)
     if not ctx.path_extract:
         ctx.path_extract = os.path.join(ctx.path_gen, 'pjswaf')
     if not ctx.path_cache_archive:

@@ -1,3 +1,6 @@
-/genwaf/gen
+/genwaf/out
 /genwaf/waf-*
+
+# Editor backup/temp files
 *.swp
+*~
