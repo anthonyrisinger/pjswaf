@@ -78,7 +78,7 @@ class o(object):
     _logger.name = auto_name
 
     _handler = logging.StreamHandler()
-    _handler.setLevel(logging.DEBUG)
+    _handler.setLevel(logging.WARNING)
 
     _formatter = logging.Formatter("%(levelname)8s: %(message)s")
     _handler.setFormatter(_formatter)
@@ -238,8 +238,10 @@ def _get_context():
     parser = optparse.OptionParser(description='Download waf, generate `--waf`.')
     cwd = os.getcwd()
 
-    parser.add_option('--uri', metavar='URI',dest='waf_uri',
-        help='retrieve {0} from URI [<localcache>, <upstream>]'.format(waf_archive))
+    parser.add_option('-v', dest='verbosity', default=o.W,
+        help='valid log level from `logging` module [WARNING]')
+    parser.add_option('--uri', metavar='URI', dest='waf_uri',
+        help='retrieve {0} from URI [<cache>, <upstream>]'.format(waf_ident))
     parser.add_option('--sha1', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
         help='expected SHA1 hexdigest of URI [%default]')
     parser.add_option('--waf', metavar='IDENT', default=alt_ident['waf'], dest='alt_waf',
@@ -257,6 +259,17 @@ def _get_context():
     ctx, args = parser.parse_args()
     if len(args) > 0:
         raise ValueError(_('{0} does not accept arguments.', auto_name, o=o.C))
+
+    # Set log level
+    if ctx.verbosity in o._levels:
+        ctx.verbosity = getattr(logging, ctx.verbosity)
+    else:
+        try:
+            ctx.verbosity = int(ctx.verbosity)
+        except ValueError:
+            _('`-v {0}` is not valid, falling back to WARNING ... ', ctx.verbosity, o=o.W)
+            ctx.verbosity = o.W
+    o._handler.setLevel(ctx.verbosity)
 
     # Update translations
     if not re.match('^[a-z_][a-z0-9_]*$', ctx.alt_waf, re.I):
@@ -286,6 +299,10 @@ def _get_context():
 
     for p in ['path_cwd', 'path_base', 'path_out', 'path_extract', 'path_cache_archive']:
         setattr(ctx, p, os.path.abspath(getattr(ctx, p)))
+
+    if o.k(o.D):
+        for opt in parser.defaults:
+            _('(ctx) {0} = {1}', opt, getattr(ctx, opt), o=o.D)
 
     return ctx
 
