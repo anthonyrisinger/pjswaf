@@ -184,14 +184,14 @@ def _waf_to_alt(waf, alt=None):
                 if n0 > 0:
                     member.path = re_ident(member.path)[0]
                     sys.stderr.write('     + ')
-                    fd_alt = StringIO.StringIO()
-                    code_alt, n0 = re_code(wafball.extractfile(member).read())
-                    code_alt, n1 = re_ident(code_alt)
+                    alt_fd = StringIO.StringIO()
+                    alt_code, n0 = re_code(wafball.extractfile(member).read())
+                    alt_code, n1 = re_ident(alt_code)
                     sys.stderr.write('{0: <3} {1: <36} [{2}]\n'.format(n0+n1, member.path, path_orig))
-                    fd_alt.write(code_alt)
-                    member.size = fd_alt.tell()
-                    fd_alt.seek(0)
-                    altball.addfile(member, fd_alt)
+                    alt_fd.write(alt_code)
+                    member.size = alt_fd.tell()
+                    alt_fd.seek(0)
+                    altball.addfile(member, alt_fd)
 
     waf.seek(0)
     alt.seek(0)
