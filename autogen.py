@@ -27,7 +27,7 @@ alt_ident = {'waf': 'pjswaf',
 #
 # Waf paths matching any filter are included.
 # re, sub, id (see above)
-pjswaf_path_filter = [
+alt_path_filter = [
 
     # Exec template/generator
     {'re': '^waf-light$'},
@@ -48,11 +48,11 @@ pjswaf_path_filter = [
 
 # Arbitrary code transforms.
 # re, sub, id (see above)
-pjswaf_code_xform = [
+alt_code_xform = [
 
     # Remove the ghost import for now
     {'re': r'\.compat15',
-        'sub': ''},
+     'sub': ''},
 
 ]
 
@@ -161,17 +161,17 @@ def _gen_xform(re_list):
 
 def _waf_to_pjs(waf, pjs=None):
 
-    sys.stderr.write('INFO : Generating pjswaf from waf ...\n')
+    sys.stderr.write('INFO : Generating {0} from waf ...\n'.format(alt_ident['waf']))
     if pjs is None:
         pjs = StringIO.StringIO()
     if PYTHON and sys.platform != 'win32':
-        pjswaf_code_xform.append({
+        alt_code_xform.append({
             're': '#! */usr/bin/env +python *',
             'sub': '#!{0}'.format(PYTHON),
         })
     pjsball = tarfile.open(fileobj=pjs, mode='w')
-    re_path = _gen_xform(pjswaf_path_filter)
-    re_code = _gen_xform(pjswaf_code_xform)
+    re_path = _gen_xform(alt_path_filter)
+    re_code = _gen_xform(alt_code_xform)
     re_ident = _gen_xform(alt_ident_xlate)
 
     # Compound `with` statements are not supported until 2.7 ...
@@ -201,7 +201,7 @@ def _waf_to_pjs(waf, pjs=None):
 
 def _get_context():
 
-    parser = optparse.OptionParser(description='Download waf, generate pjswaf.')
+    parser = optparse.OptionParser(description='Download waf, generate {0}.'.format(alt_ident['waf']))
     cwd = os.getcwd()
 
     parser.add_option('--uri', metavar='URI',dest='waf_uri',
@@ -209,34 +209,20 @@ def _get_context():
     parser.add_option('--sha1', metavar='SHA1', default=waf_hexdigest, dest='waf_hexdigest',
         help='expected SHA1 hexdigest of URI [%default]')
     parser.add_option('--waf', metavar='IDENT', dest='alt_waf',
-        help='build application name/identity [pjswaf]')
+        help='build application name/identity [{0}]'.format(alt_ident['waf']))
     parser.add_option('--wscript', metavar='FILENAME', dest='alt_wscript',
         help='instruction filename, eg. Makefile [jamfile]')
 
     # Hidden, but available for override; also simplifies updating.
     parser.add_option('--path-cwd', default=cwd, help=optparse.SUPPRESS_HELP)
     parser.add_option('--path-base', help=optparse.SUPPRESS_HELP)
-    parser.add_option('--path-gen', help=optparse.SUPPRESS_HELP)
+    parser.add_option('--path-out', help=optparse.SUPPRESS_HELP)
     parser.add_option('--path-extract', help=optparse.SUPPRESS_HELP)
     parser.add_option('--path-cache-archive', help=optparse.SUPPRESS_HELP)
 
     ctx, args = parser.parse_args()
     if len(args) > 0:
         raise ValueError('{0} does not accept arguments.'.format(sys.argv[0]))
-
-    if not ctx.path_cwd:
-        ctx.path_cwd = cwd
-    if not ctx.path_base:
-        ctx.path_base = os.path.join(ctx.path_cwd, *relpath_base)
-    if not ctx.path_gen:
-        ctx.path_gen = os.path.join(ctx.path_base, *relpath_out)
-    if not ctx.path_extract:
-        ctx.path_extract = os.path.join(ctx.path_gen, 'pjswaf')
-    if not ctx.path_cache_archive:
-        ctx.path_cache_archive = os.path.join(ctx.path_gen, waf_archive)
-
-    for p in ['path_cwd', 'path_base', 'path_gen', 'path_extract', 'path_cache_archive']:
-        setattr(ctx, p, os.path.abspath(getattr(ctx, p)))
 
     # Update translations
     if ctx.alt_waf and not re.match('[a-z_][a-z0-9_]*', ctx.alt_waf, re.I):
@@ -246,7 +232,6 @@ def _get_context():
     ctx.alt_waf = alt_ident['waf'] = ctx.alt_waf or alt_ident['waf']
     ctx.alt_wscript = alt_ident['wscript'] = ctx.alt_wscript or alt_ident['wscript']
 
-
     # Generate lower, Title, and UPPERCASE versions of `alt_ident`
     alt_ident_xlate[:] = [ 
         {'re': getattr(re_re, op)(), 'sub': getattr(re_sub, op)()}
@@ -254,13 +239,27 @@ def _get_context():
             for re_re, re_sub in alt_ident.iteritems()
     ]
 
+    if not ctx.path_cwd:
+        ctx.path_cwd = cwd
+    if not ctx.path_base:
+        ctx.path_base = os.path.join(ctx.path_cwd, *relpath_base)
+    if not ctx.path_out:
+        ctx.path_out = os.path.join(ctx.path_base, *relpath_out)
+    if not ctx.path_extract:
+        ctx.path_extract = os.path.join(ctx.path_out, ctx.alt_waf)
+    if not ctx.path_cache_archive:
+        ctx.path_cache_archive = os.path.join(ctx.path_out, waf_archive)
+
+    for p in ['path_cwd', 'path_base', 'path_out', 'path_extract', 'path_cache_archive']:
+        setattr(ctx, p, os.path.abspath(getattr(ctx, p)))
+
     return ctx
 
 
 def _get_waf(ctx):
 
-    if not os.access(ctx.path_gen, os.R_OK|os.W_OK):
-        os.makedirs(ctx.path_gen)
+    if not os.access(ctx.path_out, os.R_OK|os.W_OK):
+        os.makedirs(ctx.path_out)
 
     waf = StringIO.StringIO()
     waf_hash = hashlib.sha1()

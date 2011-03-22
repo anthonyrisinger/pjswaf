@@ -1,5 +1,5 @@
-/genwaf/out
-/genwaf/waf-*
+/altwaf/out
+/altwaf/waf-*
 
 # Editor backup/temp files
 *.swp
